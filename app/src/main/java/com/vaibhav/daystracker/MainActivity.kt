@@ -1,4 +1,3 @@
-
 package com.vaibhav.daystracker
 
 import android.app.DatePickerDialog
@@ -10,13 +9,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -29,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,12 +34,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
+import java.time.Period
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Calendar
@@ -49,8 +49,6 @@ import java.util.Calendar
 private val Midnight = Color(0xFF0A0A0B)
 private val CardTop = Color(0xFF1F2023)
 private val CardBottom = Color(0xFF121214)
-private val TileTop = Color(0xFF34363A)
-private val TileBottom = Color(0xFF232426)
 private val MainText = Color(0xFFF2F2F3)
 private val SecondaryText = Color(0xFFB4B6BA)
 private val MutedText = Color(0xFF8C8E93)
@@ -70,6 +68,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun RelationshipScreen() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     val preferences = remember {
         context.getSharedPreferences("relationship_tracker", Context.MODE_PRIVATE)
     }
@@ -90,11 +90,12 @@ fun RelationshipScreen() {
         mutableLongStateOf(System.currentTimeMillis())
     }
 
-    // Refresh the in-app counter once per second.
+    // Tick exactly on each second so the flip lands on the second.
     LaunchedEffect(Unit) {
         while (true) {
-            currentTime = System.currentTimeMillis()
-            delay(1000)
+            val now = System.currentTimeMillis()
+            currentTime = now
+            delay(1000 - now % 1000)
         }
     }
 
@@ -111,6 +112,9 @@ fun RelationshipScreen() {
     val hours = (elapsedSeconds % 86400) / 3600
     val minutes = (elapsedSeconds % 3600) / 60
     val seconds = elapsedSeconds % 60
+
+    val period = Period.between(startDate, LocalDate.now())
+    val periodText = "${period.years} years · ${period.months} months · ${period.days} days"
 
     val dateFormatter = DateTimeFormatter.ofPattern("d MMM yyyy")
     val formattedDate = startDate.format(dateFormatter)
@@ -132,6 +136,9 @@ fun RelationshipScreen() {
                     preferences.edit()
                         .putString("start_date", selectedDate.toString())
                         .apply()
+
+                    // Make the home-screen widget pick up the new date.
+                    scope.launch { RelationshipWidget().updateAll(context) }
                 }
             },
             calendar.get(Calendar.YEAR),
@@ -199,16 +206,18 @@ fun RelationshipScreen() {
                     fontSize = 21.sp
                 )
 
+                Spacer(Modifier.height(4.dp))
+
+                Text(
+                    text = periodText,
+                    color = SecondaryText,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+
                 Spacer(Modifier.height(24.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TimeTile("HOURS", hours, Modifier.weight(1f))
-                    TimeTile("MIN", minutes, Modifier.weight(1f))
-                    TimeTile("SEC", seconds, Modifier.weight(1f))
-                }
+                FlipClock(hours, minutes, seconds)
 
                 Spacer(Modifier.height(24.dp))
 
@@ -246,49 +255,5 @@ fun RelationshipScreen() {
                 }
             }
         }
-    }
-}
-
-
-@Composable
-private fun TimeTile(
-    label: String,
-    value: Long,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(64.dp)
-                .background(
-                    brush = Brush.linearGradient(
-                        colors = listOf(TileTop, TileBottom)
-                    ),
-                    shape = RoundedCornerShape(16.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = value.toString().padStart(2, '0'),
-                color = MainText,
-                fontSize = 27.sp,
-                fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center
-            )
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        Text(
-            text = label,
-            color = MutedText,
-            fontSize = 9.sp,
-            letterSpacing = 1.sp,
-            textAlign = TextAlign.Center
-        )
     }
 }

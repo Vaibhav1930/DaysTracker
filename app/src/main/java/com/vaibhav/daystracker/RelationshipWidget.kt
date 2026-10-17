@@ -5,7 +5,6 @@ import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
-import android.os.SystemClock
 import android.widget.RemoteViews
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -38,14 +37,16 @@ import androidx.glance.unit.ColorProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.time.Instant
 import java.time.LocalDate
 import java.time.Period
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
 private val widgetWhite = ColorProvider(Color(0xFFF5F5F6))
+private val widgetSoft = ColorProvider(Color(0xFFC9CBCF))
 private val widgetMuted = ColorProvider(Color(0xFF8C8E93))
+
+private fun plural(n: Int, unit: String) = "$n ${if (n == 1) unit else unit + "s"}"
 
 class RelationshipWidget : GlanceAppWidget() {
 
@@ -58,111 +59,90 @@ class RelationshipWidget : GlanceAppWidget() {
             Context.MODE_PRIVATE
         )
 
+        val today = LocalDate.now()
+
+        // A start date in the future would give negative numbers, so clamp it to today.
         val startDate = preferences.getString("start_date", null)
             ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-            ?: LocalDate.now()
+            ?.let { if (it.isAfter(today)) today else it }
+            ?: today
 
-        val today = LocalDate.now()
+        val days = ChronoUnit.DAYS.between(startDate, today)
         val period = Period.between(startDate, today)
-        val months = period.toTotalMonths()
-        val remainingDays = period.days
+        val summary = "${plural(period.years, "year")} · " +
+                "${plural(period.months, "month")} · " +
+                "${plural(period.days, "day")}"
 
-        val startInstant = startDate
-            .atStartOfDay(ZoneId.systemDefault())
-            .toInstant()
-
-        val elapsedSeconds = ChronoUnit.SECONDS
-            .between(startInstant, Instant.now())
-            .coerceAtLeast(0)
-
-        val days = elapsedSeconds / 86400
-        val secondsIntoDay = elapsedSeconds % 86400
-
-        // Live clock: it starts at "time into today" and keeps counting by itself.
-        val clock = RemoteViews(context.packageName, R.layout.widget_chronometer).apply {
-            setChronometer(
-                R.id.chrono,
-                SystemClock.elapsedRealtime() - secondsIntoDay * 1000,
-                null,
-                true
-            )
-        }
+        // Opens the app through the system launcher, so no class name is needed here.
+        val launchIntent = context.packageManager
+            .getLaunchIntentForPackage(context.packageName)
+            ?.apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
 
         provideContent {
+            val rootModifier = GlanceModifier
+                .fillMaxSize()
+                .padding(8.dp)
+                .background(ImageProvider(R.drawable.widget_bg))
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .let { base ->
+                    if (launchIntent != null) {
+                        base.clickable(actionStartActivity(launchIntent))
+                    } else {
+                        base
+                    }
+                }
+
             GlanceTheme {
                 Column(
-                    modifier = GlanceModifier
-                        .fillMaxSize()
-                        .padding(8.dp)
-                        .background(ImageProvider(R.drawable.widget_bg))
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                        .clickable(
-                            actionStartActivity(
-                                Intent(context, MainActivity::class.java)
-                            )
-                        ),
+                    modifier = rootModifier,
                     verticalAlignment = Alignment.Vertical.CenterVertically
                 ) {
                     Text(
                         text = "TOGETHER FOR",
                         style = TextStyle(
                             color = widgetMuted,
-                            fontSize = 10.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
                         )
                     )
-
-                    Spacer(GlanceModifier.height(4.dp))
 
                     Row(verticalAlignment = Alignment.Vertical.Bottom) {
                         Text(
                             text = days.toString(),
                             style = TextStyle(
                                 color = widgetWhite,
-                                fontSize = 36.sp,
+                                fontSize = 56.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         )
-                        Spacer(GlanceModifier.width(6.dp))
+                        Spacer(GlanceModifier.width(8.dp))
                         Text(
                             text = if (days == 1L) "day" else "days",
                             style = TextStyle(
                                 color = widgetMuted,
-                                fontSize = 12.sp
+                                fontSize = 18.sp
                             )
                         )
                     }
 
-                    Spacer(GlanceModifier.height(2.dp))
-
                     Text(
-                        text = "$months months · $remainingDays days",
+                        text = summary,
                         style = TextStyle(
-                            color = widgetMuted,
-                            fontSize = 11.sp
+                            color = widgetSoft,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
                         )
                     )
 
-                    Spacer(GlanceModifier.height(8.dp))
+                    Spacer(GlanceModifier.height(10.dp))
 
+                    // HH : MM : SS are TextClocks, so the system keeps them live.
                     AndroidRemoteViews(
-                        remoteViews = clock,
+                        remoteViews = RemoteViews(
+                            context.packageName,
+                            R.layout.widget_clock_row
+                        ),
                         modifier = GlanceModifier.fillMaxWidth()
-                    )
-
-
-
-
-                    Spacer(GlanceModifier.height(6.dp))
-
-                    Text(
-                        text = "SINCE ${
-                            startDate.dayOfMonth.toString().padStart(2, '0')
-                        } ${startDate.month.name.take(3)} ${startDate.year}",
-                        style = TextStyle(
-                            color = widgetMuted,
-                            fontSize = 9.sp
-                        )
                     )
                 }
             }
@@ -176,7 +156,7 @@ class RelationshipWidgetReceiver : GlanceAppWidgetReceiver() {
 
     override fun onEnabled(context: Context) {
         super.onEnabled(context)
-        scheduleNextTick(context)
+        scheduleMidnightRefresh(context)
     }
 
     override fun onUpdate(
@@ -185,13 +165,13 @@ class RelationshipWidgetReceiver : GlanceAppWidgetReceiver() {
         appWidgetIds: IntArray
     ) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
-        scheduleNextTick(context)
+        scheduleMidnightRefresh(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
 
-        if (intent.action == ACTION_TICK) {
+        if (intent.action == ACTION_MIDNIGHT) {
             val pending = goAsync()
             CoroutineScope(Dispatchers.Default).launch {
                 try {
@@ -200,32 +180,38 @@ class RelationshipWidgetReceiver : GlanceAppWidgetReceiver() {
                     pending.finish()
                 }
             }
-            scheduleNextTick(context)
+            scheduleMidnightRefresh(context)
         }
     }
 
     override fun onDisabled(context: Context) {
         super.onDisabled(context)
         context.getSystemService(AlarmManager::class.java)
-            .cancel(tickIntent(context))
+            .cancel(refreshIntent(context))
     }
 
-    private fun scheduleNextTick(context: Context) {
-        val nextMinute = (System.currentTimeMillis() / 60_000 + 1) * 60_000
+    /** The day count and the year/month/day line only change at midnight. */
+    private fun scheduleMidnightRefresh(context: Context) {
+        val nextMidnight = LocalDate.now()
+            .plusDays(1)
+            .atStartOfDay(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli() + 1_000
+
         context.getSystemService(AlarmManager::class.java)
-            .setAndAllowWhileIdle(AlarmManager.RTC, nextMinute, tickIntent(context))
+            .setAndAllowWhileIdle(AlarmManager.RTC, nextMidnight, refreshIntent(context))
     }
 
-    private fun tickIntent(context: Context): PendingIntent =
+    private fun refreshIntent(context: Context): PendingIntent =
         PendingIntent.getBroadcast(
             context,
             0,
             Intent(context, RelationshipWidgetReceiver::class.java)
-                .setAction(ACTION_TICK),
+                .setAction(ACTION_MIDNIGHT),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
     companion object {
-        const val ACTION_TICK = "com.vaibhav.daystracker.TICK"
+        const val ACTION_MIDNIGHT = "com.vaibhav.daystracker.MIDNIGHT"
     }
 }

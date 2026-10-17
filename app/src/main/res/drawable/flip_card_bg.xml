@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- darker bottom half (full card) -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient android:angle="270" android:startColor="#26272A" android:endColor="#1C1D1F" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+    <!-- lighter top half -->
+    <item android:gravity="top|fill_horizontal" android:height="28dp">
+        <shape android:shape="rectangle">
+            <gradient android:angle="270" android:startColor="#3A3C40" android:endColor="#2E3033" />
+            <corners android:topLeftRadius="14dp" android:topRightRadius="14dp" />
+        </shape>
+    </item>
+    <!-- split line -->
+    <item android:gravity="center_vertical|fill_horizontal" android:height="2dp">
+        <shape android:shape="rectangle">
+            <solid android:color="#0C0C0D" />
+        </shape>
+    </item>
+    <!-- hinge notches -->
+    <item android:gravity="left|center_vertical" android:width="5dp" android:height="14dp">
+        <shape android:shape="rectangle">
+            <solid android:color="#0C0C0D" />
+            <corners android:topRightRadius="4dp" android:bottomRightRadius="4dp" />
+        </shape>
+    </item>
+    <item android:gravity="right|center_vertical" android:width="5dp" android:height="14dp">
+        <shape android:shape="rectangle">
+            <solid android:color="#0C0C0D" />
+            <corners android:topLeftRadius="4dp" android:bottomLeftRadius="4dp" />
+        </shape>
+    </item>
+</layer-list>
